@@ -1,0 +1,22 @@
+{
+  "name": "wannatalk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Priya: a standalone Hindi/Hinglish Telnyx voice-agent pilot on Cloudflare Workers.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260818.1",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.36.0"
+  },
+  "dependencies": {
+    "zod": "^3.24.4"
+  }
+}

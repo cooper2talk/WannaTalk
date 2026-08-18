@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "wannatalk",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-18",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "CALL_SESSION", "class_name": "CallSession" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["CallSession"] }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "wannatalk-debug",
+      "database_id": "REPLACE_AFTER_CREATING_D1"
+    }
+  ],
+  "ai": { "binding": "AI" },
+  "triggers": { "crons": ["15 3 * * *"] },
+  "vars": {
+    "TELNYX_NUMBER": "+15403908080",
+    "PRIYA_GREETING": "Hi, aap kaun bol rahe hai?",
+    "GOOGLE_TTS_VOICE": "hi-IN-Chirp3-HD-Aoede",
+    "TRANSCRIPT_RETENTION_DAYS": "7"
+  }
+}
