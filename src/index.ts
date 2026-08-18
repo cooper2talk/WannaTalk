@@ -1,5 +1,5 @@
 import { CallSession } from "./call-session";
-import { verifyTelnyxWebhook } from "./security";
+import { base64ToBytes, bytesToBase64Url, toArrayBuffer, verifyTelnyxWebhook } from "./security";
 import type { Env, TelnyxWebhook } from "./types";
 
 const jsonHeaders = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
@@ -13,9 +13,41 @@ function secureHeaders(response: Response): Response {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
-function isDashboardRequestAuthorized(request: Request, env: Env): boolean {
+async function dashboardSigningKey(env: Env): Promise<CryptoKey> {
+  return crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(env.DASHBOARD_ADMIN_SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"],
+  );
+}
+
+async function createDashboardSession(env: Env): Promise<string> {
+  const payload = bytesToBase64Url(new TextEncoder().encode(JSON.stringify({ exp: Date.now() + 8 * 60 * 60 * 1000 })));
+  const signature = await crypto.subtle.sign("HMAC", await dashboardSigningKey(env), new TextEncoder().encode(payload));
+  return `${payload}.${bytesToBase64Url(new Uint8Array(signature))}`;
+}
+
+async function isDashboardRequestAuthorized(request: Request, env: Env): Promise<boolean> {
   const cookie = request.headers.get("cookie") ?? "";
-  return cookie.split(";").some((item) => item.trim() === `wannatalk_admin=${env.DASHBOARD_ADMIN_SECRET}`);
+  const value = cookie.split(";").map((item) => item.trim()).find((item) => item.startsWith("wannatalk_admin="))?.slice("wannatalk_admin=".length);
+  if (!value) return false;
+  const [payload, signature] = value.split(".");
+  if (!payload || !signature) return false;
+  try {
+    const valid = await crypto.subtle.verify(
+      "HMAC",
+      await dashboardSigningKey(env),
+      toArrayBuffer(base64ToBytes(signature)),
+      new TextEncoder().encode(payload),
+    );
+    if (!valid) return false;
+    const session = JSON.parse(new TextDecoder().decode(base64ToBytes(payload))) as { exp?: number };
+    return typeof session.exp === "number" && session.exp > Date.now();
+  } catch {
+    return false;
+  }
 }
 
 function unauthorized(): Response {
@@ -60,9 +92,10 @@ function loginHtml(): string {
 async function dashboardLogin(request: Request, env: Env): Promise<Response> {
   const form = await request.formData();
   if (form.get("secret") !== env.DASHBOARD_ADMIN_SECRET) return new Response("Invalid secret", { status: 403 });
+  const session = await createDashboardSession(env);
   return new Response(null, {
     status: 303,
-    headers: { location: "/dashboard", "set-cookie": `wannatalk_admin=${env.DASHBOARD_ADMIN_SECRET}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=28800` },
+    headers: { location: "/dashboard", "set-cookie": `wannatalk_admin=${session}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=28800` },
   });
 }
 
@@ -116,17 +149,17 @@ export default {
       if (request.method === "GET" && url.pathname === "/dashboard/login") return secureHeaders(new Response(loginHtml(), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } }));
       if (request.method === "POST" && url.pathname === "/dashboard/login") return secureHeaders(await dashboardLogin(request, env));
       if (request.method === "GET" && url.pathname === "/dashboard") {
-        if (!isDashboardRequestAuthorized(request, env)) return Response.redirect(new URL("/dashboard/login", request.url), 303);
+        if (!(await isDashboardRequestAuthorized(request, env))) return Response.redirect(new URL("/dashboard/login", request.url), 303);
         return secureHeaders(new Response(dashboardHtml(), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } }));
       }
       if (request.method === "GET" && url.pathname === "/api/debug/calls") {
-        if (!isDashboardRequestAuthorized(request, env)) return unauthorized();
+        if (!(await isDashboardRequestAuthorized(request, env))) return unauthorized();
         const { results } = await env.DB.prepare("SELECT call_control_id, caller_number, called_number, started_at, ended_at, status, last_error FROM calls ORDER BY started_at DESC LIMIT 50").all();
         return secureHeaders(new Response(JSON.stringify(results), { headers: jsonHeaders }));
       }
       const turnsMatch = url.pathname.match(/^\/api\/debug\/calls\/([^/]+)\/turns$/);
       if (request.method === "GET" && turnsMatch) {
-        if (!isDashboardRequestAuthorized(request, env)) return unauthorized();
+        if (!(await isDashboardRequestAuthorized(request, env))) return unauthorized();
         const { results } = await env.DB.prepare("SELECT speaker, text, created_at FROM transcript_turns WHERE call_control_id = ? ORDER BY id ASC").bind(decodeURIComponent(turnsMatch[1])).all();
         return secureHeaders(new Response(JSON.stringify(results), { headers: jsonHeaders }));
       }
