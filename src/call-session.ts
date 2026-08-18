@@ -1,6 +1,6 @@
-import { synthesizeHindiSpeech } from "./google-tts";
 import { maskPhoneNumber, toArrayBuffer } from "./security";
 import { PRIYA_SYSTEM_PROMPT, normalizeSpokenReply } from "./prompt";
+import { speakOnCall, stopCallSpeech } from "./telnyx-tts";
 import type { CallRecord, Env, TranscriptTurn } from "./types";
 
 type StreamMessage = {
@@ -93,7 +93,6 @@ export class CallSession {
 
     if (event.event === "start") await this.handleStart(webSocket, event);
     if (event.event === "media" && event.media?.track !== "outbound") await this.handleMedia(webSocket, event);
-    if (event.event === "mark") this.isSpeaking = false;
     if (event.event === "stop") await this.finish("ended");
   }
 
@@ -133,13 +132,17 @@ export class CallSession {
     };
     await this.saveCall();
     await this.appendTurn("priya", this.env.PRIYA_GREETING);
-    await this.sendSpeech(webSocket, this.env.PRIYA_GREETING);
+    await this.sendSpeech(this.env.PRIYA_GREETING);
   }
 
   private async handleMedia(webSocket: WebSocket, event: StreamMessage): Promise<void> {
     if (!event.media?.payload || !this.call || this.call.status !== "active") return;
     if (this.isSpeaking) {
-      webSocket.send(JSON.stringify({ event: "clear" }));
+      try {
+        await stopCallSpeech(this.env, this.call.callControlId);
+      } catch (error) {
+        await this.fail(`TTS interrupt error: ${error instanceof Error ? error.message : "unknown"}`);
+      }
       this.isSpeaking = false;
     }
     try {
@@ -183,20 +186,17 @@ export class CallSession {
       }
 
       await this.appendTurn("priya", reply);
-      const socket = this.ctx.getWebSockets()[0];
-      if (socket) await this.sendSpeech(socket, reply);
+      await this.sendSpeech(reply);
     } catch (error) {
       await this.fail(`AI inference error: ${error instanceof Error ? error.message : "unknown"}`);
     }
   }
 
-  private async sendSpeech(webSocket: WebSocket, text: string): Promise<void> {
+  private async sendSpeech(text: string): Promise<void> {
+    if (!this.call || this.call.status !== "active") return;
     try {
-      const audioContent = await synthesizeHindiSpeech(this.env.GOOGLE_TTS_SERVICE_ACCOUNT_JSON, this.env.GOOGLE_TTS_VOICE, text);
+      await speakOnCall(this.env, this.call.callControlId, text);
       this.isSpeaking = true;
-      const markName = `priya-${crypto.randomUUID()}`;
-      webSocket.send(JSON.stringify({ event: "media", media: { payload: audioContent } }));
-      webSocket.send(JSON.stringify({ event: "mark", mark: { name: markName } }));
     } catch (error) {
       await this.fail(`TTS error: ${error instanceof Error ? error.message : "unknown"}`);
     }

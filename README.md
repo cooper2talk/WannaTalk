@@ -17,7 +17,6 @@ Standalone Cloudflare/Telnyx test project for **Priya**, a Hindi/Hinglish conver
 ```powershell
 wrangler secret put TELNYX_API_KEY
 wrangler secret put TELNYX_WEBHOOK_PUBLIC_KEY
-wrangler secret put GOOGLE_TTS_SERVICE_ACCOUNT_JSON
 wrangler secret put DASHBOARD_ADMIN_SECRET
 ```
 
@@ -36,8 +35,8 @@ After deployment, its WebSocket endpoint is:
 
 `wss://<your-worker>.workers.dev/media`
 
-The Worker answers an incoming call, requesting Telnyx bidirectional RTP streaming with PCMU 8 kHz. It verifies all Telnyx webhooks before accepting them.
-Cloudflare Workers AI receives that raw PCMU audio as `audio/mulaw;rate=8000` and uses its supported Hindi `hi` language hint for transcription.
+The Worker answers an incoming call and requests inbound PCMU 8 kHz streaming for transcription. It verifies all Telnyx webhooks before accepting them.
+Cloudflare Workers AI receives raw PCMU audio as `audio/mulaw;rate=8000` and uses the supported Hindi `hi` language hint for transcription. Telnyx plays Priya's replies directly into the active call using its premium NaturalHD voice; the Worker never stores audio and does not require a Google service-account key.
 
 ## Local commands
 

@@ -24,7 +24,7 @@
   "vars": {
     "TELNYX_NUMBER": "+15403908080",
     "PRIYA_GREETING": "Hi, aap kaun bol rahe hai?",
-    "GOOGLE_TTS_VOICE": "hi-IN-Chirp3-HD-Aoede",
+    "TELNYX_TTS_VOICE": "Telnyx.NaturalHD.astra",
     "TRANSCRIPT_RETENTION_DAYS": "7"
   }
 }

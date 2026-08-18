@@ -4,11 +4,10 @@ export interface Env {
   CALL_SESSION: DurableObjectNamespace;
   TELNYX_API_KEY: string;
   TELNYX_WEBHOOK_PUBLIC_KEY: string;
-  GOOGLE_TTS_SERVICE_ACCOUNT_JSON: string;
   DASHBOARD_ADMIN_SECRET: string;
   TELNYX_NUMBER: string;
   PRIYA_GREETING: string;
-  GOOGLE_TTS_VOICE: string;
+  TELNYX_TTS_VOICE: string;
   TRANSCRIPT_RETENTION_DAYS: string;
 }
 
