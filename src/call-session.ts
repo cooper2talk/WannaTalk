@@ -1,5 +1,5 @@
 import { synthesizeHindiSpeech } from "./google-tts";
-import { maskPhoneNumber } from "./security";
+import { maskPhoneNumber, toArrayBuffer } from "./security";
 import { PRIYA_SYSTEM_PROMPT, normalizeSpokenReply } from "./prompt";
 import type { CallRecord, Env, TranscriptTurn } from "./types";
 
@@ -149,31 +149,36 @@ export class CallSession {
   }
 
   private async transcribeAndReply(audio: Uint8Array): Promise<void> {
-    const transcriptResponse = await this.env.AI.run("@cf/deepgram/nova-3", {
-      audio: Array.from(audio),
-      encoding: "mulaw",
-      sample_rate: 8000,
-      language: "hi-IN",
-      smart_format: true,
-    } as never);
-    const transcript = normalizeSpokenReply(textFromTranscription(transcriptResponse));
-    if (!transcript) return;
+    try {
+      const transcriptResponse = await this.env.AI.run("@cf/deepgram/nova-3", {
+        // Workers AI requires binary input to be nested under `audio.body`.
+        // Telnyx sends raw PCMU (mu-law), 8 kHz RTP payload bytes.
+        audio: { body: toArrayBuffer(audio), contentType: "audio/mulaw;rate=8000" },
+        encoding: "mulaw",
+        language: "hi",
+        smart_format: true,
+      });
+      const transcript = normalizeSpokenReply(textFromTranscription(transcriptResponse));
+      if (!transcript) return;
 
-    await this.appendTurn("caller", transcript);
-    const replyResponse = await this.env.AI.run("@cf/qwen/qwen3-30b-a3b-fp8", {
-      messages: [
-        { role: "system", content: PRIYA_SYSTEM_PROMPT },
-        ...this.turns.filter((turn) => turn.speaker !== "system").map((turn) => ({ role: turn.speaker === "priya" ? "assistant" : "user", content: turn.text })),
-      ],
-      max_tokens: 90,
-      temperature: 0.55,
-    } as never);
-    const reply = normalizeSpokenReply(textFromModel(replyResponse));
-    if (!reply) return;
+      await this.appendTurn("caller", transcript);
+      const replyResponse = await this.env.AI.run("@cf/qwen/qwen3-30b-a3b-fp8", {
+        messages: [
+          { role: "system", content: PRIYA_SYSTEM_PROMPT },
+          ...this.turns.filter((turn) => turn.speaker !== "system").map((turn) => ({ role: turn.speaker === "priya" ? "assistant" : "user", content: turn.text })),
+        ],
+        max_tokens: 90,
+        temperature: 0.55,
+      });
+      const reply = normalizeSpokenReply(textFromModel(replyResponse));
+      if (!reply) return;
 
-    await this.appendTurn("priya", reply);
-    const socket = this.ctx.getWebSockets()[0];
-    if (socket) await this.sendSpeech(socket, reply);
+      await this.appendTurn("priya", reply);
+      const socket = this.ctx.getWebSockets()[0];
+      if (socket) await this.sendSpeech(socket, reply);
+    } catch (error) {
+      await this.fail(`AI inference error: ${error instanceof Error ? error.message : "unknown"}`);
+    }
   }
 
   private async sendSpeech(webSocket: WebSocket, text: string): Promise<void> {

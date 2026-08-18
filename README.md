@@ -37,6 +37,7 @@ After deployment, its WebSocket endpoint is:
 `wss://<your-worker>.workers.dev/media`
 
 The Worker answers an incoming call, requesting Telnyx bidirectional RTP streaming with PCMU 8 kHz. It verifies all Telnyx webhooks before accepting them.
+Cloudflare Workers AI receives that raw PCMU audio as `audio/mulaw;rate=8000` and uses its supported Hindi `hi` language hint for transcription.
 
 ## Local commands
 
