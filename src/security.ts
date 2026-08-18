@@ -23,8 +23,26 @@ export function toArrayBuffer(value: Uint8Array): ArrayBuffer {
   return copy.buffer;
 }
 
-function pemToDer(pem: string): Uint8Array {
-  return base64ToBytes(pem.replace(/-----BEGIN PUBLIC KEY-----|-----END PUBLIC KEY-----|\s/g, ""));
+/**
+ * Telnyx may show its Ed25519 verification key as either a PEM/SPKI value or
+ * as the base64-encoded 32-byte public key. Web Crypto requires SPKI, so wrap
+ * a raw Ed25519 public key in the standard SPKI prefix when needed.
+ */
+function telnyxPublicKeyToSpki(value: string): Uint8Array {
+  const cleaned = value.replace(/-----BEGIN PUBLIC KEY-----|-----END PUBLIC KEY-----|\s/g, "");
+  const decoded = base64ToBytes(cleaned);
+
+  // DER SubjectPublicKeyInfo prefix for an Ed25519 (OID 1.3.101.112) key.
+  const ed25519SpkiPrefix = Uint8Array.of(
+    0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
+  );
+
+  if (decoded.byteLength !== 32) return decoded;
+
+  const spki = new Uint8Array(ed25519SpkiPrefix.byteLength + decoded.byteLength);
+  spki.set(ed25519SpkiPrefix);
+  spki.set(decoded, ed25519SpkiPrefix.byteLength);
+  return spki;
 }
 
 /**
@@ -35,9 +53,9 @@ export async function verifyTelnyxWebhook(
   rawBody: string,
   signature: string | null,
   timestamp: string | null,
-  publicKeyPem: string,
+  publicKey: string,
 ): Promise<boolean> {
-  if (!signature || !timestamp || !publicKeyPem) return false;
+  if (!signature || !timestamp || !publicKey) return false;
 
   const timestampValue = Number(timestamp);
   if (!Number.isFinite(timestampValue) || Math.abs(Date.now() / 1000 - timestampValue) > 5 * 60) {
@@ -45,16 +63,16 @@ export async function verifyTelnyxWebhook(
   }
 
   try {
-    const publicKey = await crypto.subtle.importKey(
+    const importedKey = await crypto.subtle.importKey(
       "spki",
-      toArrayBuffer(pemToDer(publicKeyPem)),
+      toArrayBuffer(telnyxPublicKeyToSpki(publicKey)),
       { name: "Ed25519" },
       false,
       ["verify"],
     );
     return crypto.subtle.verify(
       "Ed25519",
-      publicKey,
+      importedKey,
       toArrayBuffer(base64ToBytes(signature)),
       new TextEncoder().encode(`${timestamp}|${rawBody}`),
     );

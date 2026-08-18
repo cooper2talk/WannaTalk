@@ -21,6 +21,11 @@ wrangler secret put GOOGLE_TTS_SERVICE_ACCOUNT_JSON
 wrangler secret put DASHBOARD_ADMIN_SECRET
 ```
 
+For `TELNYX_WEBHOOK_PUBLIC_KEY`, copy the value from **Telnyx Mission Control →
+Keys & Credentials → Public Key**. The Worker accepts the normal PEM value
+and Telnyx's base64 public-key display format. Never use the Telnyx API key in
+place of this verification key.
+
 ## Required Telnyx setup
 
 Create a dedicated Voice API / Call Control Application for WannaTalk and bind only `+15403908080`. Set its webhook URL to:
