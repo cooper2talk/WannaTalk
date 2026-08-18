@@ -72,7 +72,11 @@ async function telnyxAnswerCall(request: Request, env: Env, callControlId: strin
       stream_codec: "PCMU",
     }),
   });
-  if (!response.ok) throw new Error(`Telnyx answer failed: ${response.status}`);
+  if (!response.ok) {
+    console.error("Telnyx answer command rejected", { status: response.status });
+    throw new Error(`Telnyx answer failed: ${response.status}`);
+  }
+  console.log("Telnyx answer command accepted");
 }
 
 function dashboardHtml(): string {
@@ -106,7 +110,10 @@ async function handleTelnyxWebhook(request: Request, env: Env): Promise<Response
     request.headers.get("telnyx-timestamp"),
     env.TELNYX_WEBHOOK_PUBLIC_KEY,
   );
-  if (!verified) return new Response("Invalid Telnyx signature", { status: 401 });
+  if (!verified) {
+    console.warn("Telnyx webhook rejected: signature validation failed");
+    return new Response("Invalid Telnyx signature", { status: 401 });
+  }
 
   let event: TelnyxWebhook;
   try {
@@ -116,7 +123,10 @@ async function handleTelnyxWebhook(request: Request, env: Env): Promise<Response
   }
   const payload = event.data?.payload;
   if (event.data?.event_type === "call.initiated" && payload?.call_control_id && payload.to === env.TELNYX_NUMBER) {
+    console.log("Telnyx inbound call received for WannaTalk");
     await telnyxAnswerCall(request, env, payload.call_control_id);
+  } else if (event.data?.event_type === "call.initiated") {
+    console.warn("Telnyx inbound call ignored: called-number mismatch or missing control ID");
   }
   return new Response(null, { status: 204 });
 }
