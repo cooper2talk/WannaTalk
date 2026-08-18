@@ -16,7 +16,7 @@
     {
       "binding": "DB",
       "database_name": "wannatalk-debug",
-      "database_id": "REPLACE_AFTER_CREATING_D1"
+      "database_id": "746a8993-6b1c-4ec7-983a-8b35425e5b60"
     }
   ],
   "ai": { "binding": "AI" },
