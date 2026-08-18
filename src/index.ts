@@ -4,6 +4,12 @@ import type { Env, TelnyxWebhook } from "./types";
 
 const jsonHeaders = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 
+class TelnyxCommandError extends Error {
+  constructor(readonly status: number) {
+    super(`Telnyx command failed: ${status}`);
+  }
+}
+
 async function recordCallSetupDiagnostic(env: Env, stage: string): Promise<void> {
   await env.DB.prepare("INSERT INTO call_setup_diagnostics (created_at, stage) VALUES (?, ?)")
     .bind(new Date().toISOString(), stage)
@@ -80,7 +86,7 @@ async function telnyxAnswerCall(request: Request, env: Env, callControlId: strin
   });
   if (!response.ok) {
     console.error("Telnyx answer command rejected", { status: response.status });
-    throw new Error(`Telnyx answer failed: ${response.status}`);
+    throw new TelnyxCommandError(response.status);
   }
   console.log("Telnyx answer command accepted");
 }
@@ -136,8 +142,9 @@ async function handleTelnyxWebhook(request: Request, env: Env): Promise<Response
     try {
       await telnyxAnswerCall(request, env, payload.call_control_id);
       await recordCallSetupDiagnostic(env, "answer_command_accepted");
-    } catch {
-      await recordCallSetupDiagnostic(env, "answer_command_failed");
+    } catch (error) {
+      const stage = error instanceof TelnyxCommandError ? `answer_command_failed_${error.status}` : "answer_command_failed";
+      await recordCallSetupDiagnostic(env, stage);
       throw new Error("Telnyx answer command failed");
     }
   } else if (event.data?.event_type === "call.initiated") {
