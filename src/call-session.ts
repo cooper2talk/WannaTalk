@@ -36,10 +36,16 @@ function textFromTranscription(result: unknown): string {
   return typeof alternatives?.[0]?.transcript === "string" ? alternatives[0].transcript : "";
 }
 
-function textFromModel(result: unknown): string {
+export function textFromModel(result: unknown): string {
   if (typeof result === "string") return result;
   const data = result as Record<string, unknown>;
-  return typeof data.response === "string" ? data.response : typeof data.text === "string" ? data.text : "";
+  if (typeof data.response === "string") return data.response;
+  if (typeof data.text === "string") return data.text;
+
+  const choices = data.choices as Array<Record<string, unknown>> | undefined;
+  const message = choices?.[0]?.message as Record<string, unknown> | undefined;
+  if (typeof message?.content === "string") return message.content;
+  return typeof choices?.[0]?.text === "string" ? choices[0].text : "";
 }
 
 export class CallSession {
@@ -171,7 +177,10 @@ export class CallSession {
         temperature: 0.55,
       });
       const reply = normalizeSpokenReply(textFromModel(replyResponse));
-      if (!reply) return;
+      if (!reply) {
+        await this.fail("AI inference error: model returned an empty reply");
+        return;
+      }
 
       await this.appendTurn("priya", reply);
       const socket = this.ctx.getWebSockets()[0];
