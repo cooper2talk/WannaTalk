@@ -4,6 +4,12 @@ import type { Env, TelnyxWebhook } from "./types";
 
 const jsonHeaders = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 
+async function recordCallSetupDiagnostic(env: Env, stage: string): Promise<void> {
+  await env.DB.prepare("INSERT INTO call_setup_diagnostics (created_at, stage) VALUES (?, ?)")
+    .bind(new Date().toISOString(), stage)
+    .run();
+}
+
 function secureHeaders(response: Response): Response {
   const headers = new Headers(response.headers);
   headers.set("x-content-type-options", "nosniff");
@@ -112,6 +118,7 @@ async function handleTelnyxWebhook(request: Request, env: Env): Promise<Response
   );
   if (!verified) {
     console.warn("Telnyx webhook rejected: signature validation failed");
+    await recordCallSetupDiagnostic(env, "webhook_signature_rejected");
     return new Response("Invalid Telnyx signature", { status: 401 });
   }
 
@@ -119,14 +126,23 @@ async function handleTelnyxWebhook(request: Request, env: Env): Promise<Response
   try {
     event = JSON.parse(rawBody) as TelnyxWebhook;
   } catch {
+    await recordCallSetupDiagnostic(env, "webhook_invalid_json");
     return new Response("Invalid JSON", { status: 400 });
   }
   const payload = event.data?.payload;
   if (event.data?.event_type === "call.initiated" && payload?.call_control_id && payload.to === env.TELNYX_NUMBER) {
     console.log("Telnyx inbound call received for WannaTalk");
-    await telnyxAnswerCall(request, env, payload.call_control_id);
+    await recordCallSetupDiagnostic(env, "inbound_call_received");
+    try {
+      await telnyxAnswerCall(request, env, payload.call_control_id);
+      await recordCallSetupDiagnostic(env, "answer_command_accepted");
+    } catch {
+      await recordCallSetupDiagnostic(env, "answer_command_failed");
+      throw new Error("Telnyx answer command failed");
+    }
   } else if (event.data?.event_type === "call.initiated") {
     console.warn("Telnyx inbound call ignored: called-number mismatch or missing control ID");
+    await recordCallSetupDiagnostic(env, "inbound_call_ignored");
   }
   return new Response(null, { status: 204 });
 }
@@ -137,6 +153,7 @@ async function purgeExpiredTranscripts(env: Env): Promise<void> {
   await env.DB.batch([
     env.DB.prepare("DELETE FROM transcript_turns WHERE created_at < ?").bind(threshold),
     env.DB.prepare("DELETE FROM calls WHERE started_at < ?").bind(threshold),
+    env.DB.prepare("DELETE FROM call_setup_diagnostics WHERE created_at < ?").bind(threshold),
   ]);
 }
 
@@ -164,6 +181,11 @@ export default {
       if (request.method === "GET" && url.pathname === "/api/debug/calls") {
         if (!(await isDashboardRequestAuthorized(request, env))) return unauthorized();
         const { results } = await env.DB.prepare("SELECT call_control_id, caller_number, called_number, started_at, ended_at, status, last_error FROM calls ORDER BY started_at DESC LIMIT 50").all();
+        return secureHeaders(new Response(JSON.stringify(results), { headers: jsonHeaders }));
+      }
+      if (request.method === "GET" && url.pathname === "/api/debug/call-setup") {
+        if (!(await isDashboardRequestAuthorized(request, env))) return unauthorized();
+        const { results } = await env.DB.prepare("SELECT created_at, stage FROM call_setup_diagnostics ORDER BY id DESC LIMIT 20").all();
         return secureHeaders(new Response(JSON.stringify(results), { headers: jsonHeaders }));
       }
       const turnsMatch = url.pathname.match(/^\/api\/debug\/calls\/([^/]+)\/turns$/);
