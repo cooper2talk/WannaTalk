@@ -69,8 +69,7 @@ async function telnyxAnswerCall(request: Request, env: Env, callControlId: strin
     body: JSON.stringify({
       stream_url: toWebSocketUrl(request, callControlId),
       stream_track: "inbound_track",
-      stream_bidirectional_mode: "rtp",
-      stream_bidirectional_codec: "PCMU",
+      stream_codec: "PCMU",
     }),
   });
   if (!response.ok) throw new Error(`Telnyx answer failed: ${response.status}`);
